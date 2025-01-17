@@ -1,14 +1,13 @@
 import asyncio
 import hashlib
 import hmac
-import json
 import os
 import pickle
 import sqlite3
 import time
 from ast import literal_eval
 from collections.abc import Sequence
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
 from enum import Enum
 from functools import reduce
@@ -17,10 +16,13 @@ from os import environ
 from typing import Annotated, Literal
 
 import httpx
+import jwt
 import structlog
 import uvicorn
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, HTTPException, Security
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from passlib.hash import argon2
 
 DATABASE_DEFAULT = "./database.sqlite"
 
@@ -40,20 +42,33 @@ class Image:
     source: Source  # which image library you get this image from? [Unsplash, Storyblocks, Pixabay]
     tags: Sequence[str]  # the tag/keywords of the images (if any)
 
+@dataclass
+class User:
+    name: str
+    password: str
+
+
+@dataclass
+class Token:
+    name: str
+    token: str
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Resetting table")
 
-    os.remove(environ.get("DATABASE", DATABASE_DEFAULT))
-    conn = _database_connect()
+    with suppress(FileNotFoundError):
+        os.remove(environ.get("DATABASE", DATABASE_DEFAULT))
+
+    conn = await _database_connect()
 
     logger.info("Resetting database")
     conn.execute(
         """
         CREATE TABLE user (
             name TEXT NOT NULL UNIQUE,
-            secret TEXT NOT NULL
+            password TEXT NOT NULL
         );
         """
     )
@@ -74,18 +89,75 @@ logger = structlog.get_logger()
 load_dotenv()
 
 
-def _database_connect() -> sqlite3.Connection:
+async def _database_connect() -> sqlite3.Connection:
     conn = sqlite3.connect(environ.get("DATABASE", DATABASE_DEFAULT))
+
     if conn.execute("PRAGMA journal_mode=WAL;").fetchone()[0] != "wal":
         raise Exception("Unable to initialize database")
 
     return conn
 
 
-@app.get("/search")
-async def search(search_term: str) -> Sequence[Image]:
-    conn = _database_connect()
+async def _get_user(
+    credentials: Annotated[HTTPAuthorizationCredentials, Depends(HTTPBearer())],
+    conn: Annotated[sqlite3.Connection, Depends(_database_connect)],
+) -> str:
+    try:
+        user = jwt.decode(
+            credentials.credentials, environ.get("JWT_SECRET", "JWT-SECRET"), "HS256"
+        )
+        cur = conn.execute(
+            """
+            SELECT  password
+            FROM    user
+            WHERE   name = ?
+            """,
+            (user["name"],),
+        )
 
+        if (data := cur.fetchone()) and argon2.verify(user["password"], data[0]):
+            return user["name"]
+
+        else:
+            raise Exception("Unable to authenticate user")
+
+    except Exception as e:
+        logger.exception(e)
+
+        raise HTTPException(403, "Unable to authenticate user") from e
+
+
+@app.post("/register")
+async def register(
+    user: User,
+    conn: Annotated[sqlite3.Connection, Depends(_database_connect)],
+) -> Token:
+    conn.execute(
+        """
+        INSERT
+        INTO    user (name, password)
+        VALUES  (?, ?)
+        """,
+        (user.name, argon2.hash(user.password)),
+    )
+    conn.commit()
+
+    return Token(
+        user.name,
+        jwt.encode(
+            {"name": user.name, "password": user.password},
+            environ.get("JWT_SECRET", "JWT-SECRET"),
+            "HS256",
+        ),
+    )
+
+
+@app.get("/search")
+async def search(
+    search_term: str,
+    conn: Annotated[sqlite3.Connection, Depends(_database_connect)],
+    current_user: Annotated[str, Security(_get_user)],
+) -> Sequence[Image]:
     if _check_is_cache_result():
         if result := _search_cache(conn, search_term):
             return result
@@ -94,7 +166,9 @@ async def search(search_term: str) -> Sequence[Image]:
     async with httpx.AsyncClient() as client, asyncio.TaskGroup() as tg:
         tasks.append(tg.create_task(_search_unsplash(client, search_term)))
         tasks.append(tg.create_task(_search_pixabay(client, search_term)))
-        tasks.append(tg.create_task(_search_storyblocks(client, search_term)))
+        tasks.append(
+            tg.create_task(_search_storyblocks(client, search_term, current_user))
+        )
 
     result = tuple(chain.from_iterable(task.result() for task in tasks))
 
@@ -214,7 +288,7 @@ async def _search_pixabay(
 
 
 async def _search_storyblocks(
-    client: httpx.AsyncClient, search_term: str
+    client: httpx.AsyncClient, search_term: str, current_user: str
 ) -> Sequence[Image]:
     logger.info("Fetching result from storyblocks", search_term=search_term)
 
@@ -235,7 +309,7 @@ async def _search_storyblocks(
                 hashlib.sha256,
             ).hexdigest(),
             "keywords": search_term,
-            "user_id": "PANTHEON_PROJECT:API_USER",
+            "user_id": f"PANTHEON_PROJECT:{current_user}",
             "project_id": "PANTHEON_PROJECT",
         },
     )
