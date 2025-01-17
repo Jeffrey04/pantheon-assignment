@@ -1,0 +1,16 @@
+name: image builder dev
+run-name: Building new docker containers
+on: [push]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: set lower case owner name
+        run: echo "OWNER_LC=${OWNER,,}" >>${GITHUB_ENV}
+        env:
+          OWNER: '${{ github.repository_owner }}'
+      - uses: actions/checkout@v4
+      - run: sudo apt-get install -y podman
+      - run: echo ${{ secrets.GITHUB_TOKEN }} | podman login ghcr.io -u ${{ github.repository_owner }} --password-stdin
+      - run: podman build --tag "ghcr.io/$OWNER_LC/pantheon-assignment:dev" -f ./podman/Dockerfile .
+      - run: podman push "ghcr.io/$OWNER_LC/pantheon-assignment:dev"
