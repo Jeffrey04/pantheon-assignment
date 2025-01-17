@@ -54,8 +54,8 @@ class Token:
     token: str
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
+async def database_init() -> None:
+    conn = await _database_connect()
     logger.info("Resetting table")
 
     with suppress(FileNotFoundError):
@@ -81,16 +81,19 @@ async def lifespan(app: FastAPI):
         """
     )
     conn.close()
-    yield
 
 
-app = FastAPI(lifespan=lifespan)
+# NOTE: FastAPI is chosen as it is asynchornous in nature
+app = FastAPI()
+
 logger = structlog.get_logger()
 load_dotenv()
 
 
 async def _database_connect() -> sqlite3.Connection:
-    conn = sqlite3.connect(environ.get("DATABASE", DATABASE_DEFAULT))
+    conn = sqlite3.connect(
+        environ.get("DATABASE", DATABASE_DEFAULT), isolation_level=None
+    )
 
     if conn.execute("PRAGMA journal_mode=WAL;").fetchone()[0] != "wal":
         raise Exception("Unable to initialize database")
@@ -164,6 +167,8 @@ async def search(
 
     tasks = []
     async with httpx.AsyncClient() as client, asyncio.TaskGroup() as tg:
+        # NOTE: when tasks are scheduled asynchronously within a TaskGroup context manager,
+        # all of them will be awaited until completion
         tasks.append(tg.create_task(_search_unsplash(client, search_term)))
         tasks.append(tg.create_task(_search_pixabay(client, search_term)))
         tasks.append(
@@ -213,7 +218,7 @@ def _cache_result(
 
     conn.execute(
         """
-        INSERT
+        REPLACE
         INTO    search (search_term, result)
         VALUES  (?, ?)
         """,
@@ -337,4 +342,6 @@ async def _search_storyblocks(
 
 
 def main() -> None:
-    uvicorn.run(app, host="0.0.0.0", port=8081)
+    asyncio.run(database_init())
+
+    uvicorn.run("pantheon_assignment:app", host="0.0.0.0", port=8081)
