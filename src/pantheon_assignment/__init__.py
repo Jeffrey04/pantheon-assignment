@@ -7,7 +7,7 @@ import sqlite3
 import time
 from ast import literal_eval
 from collections.abc import Sequence
-from contextlib import asynccontextmanager, suppress
+from contextlib import suppress
 from dataclasses import dataclass
 from enum import Enum
 from functools import reduce
@@ -25,6 +25,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from passlib.hash import argon2
 
 DATABASE_DEFAULT = "./database.sqlite"
+HTTP_RETRY_COUNT = 5
 
 
 class Source(Enum):
@@ -41,6 +42,7 @@ class Image:
     title: str  # title/description of the image
     source: Source  # which image library you get this image from? [Unsplash, Storyblocks, Pixabay]
     tags: Sequence[str]  # the tag/keywords of the images (if any)
+
 
 @dataclass
 class User:
@@ -166,7 +168,12 @@ async def search(
             return result
 
     tasks = []
-    async with httpx.AsyncClient() as client, asyncio.TaskGroup() as tg:
+    async with (
+        httpx.AsyncClient(
+            transport=httpx.AsyncHTTPTransport(retries=HTTP_RETRY_COUNT)
+        ) as client,
+        asyncio.TaskGroup() as tg,
+    ):
         # NOTE: when tasks are scheduled asynchronously within a TaskGroup context manager,
         # all of them will be awaited until completion
         tasks.append(tg.create_task(_search_unsplash(client, search_term)))
@@ -187,7 +194,7 @@ async def search(
 
 def _check_is_cache_result() -> bool:
     try:
-        return literal_eval(environ.get("CACHE_RESULT", "False"))
+        return bool(literal_eval(environ.get("CACHE_RESULT", "False")))
     except Exception:
         return False
 
@@ -258,7 +265,7 @@ async def _search_unsplash(
         )
 
     else:
-        raise Exception("Search failed")
+        return ()
 
 
 async def _search_pixabay(
@@ -289,7 +296,7 @@ async def _search_pixabay(
         )
 
     else:
-        raise Exception("Search failed")
+        return ()
 
 
 async def _search_storyblocks(
@@ -337,11 +344,11 @@ async def _search_storyblocks(
         )
 
     else:
-        print(response.read())
-        raise Exception("Search failed")
+        return ()
 
 
 def main() -> None:
+    # NOTE: Resetting the database on each run due to the experimental nature of this assignment
     asyncio.run(database_init())
 
     uvicorn.run("pantheon_assignment:app", host="0.0.0.0", port=8081)
