@@ -1,0 +1,20 @@
+services:
+  backend:
+    image: jeffrey04/pantheon-assignment
+    build:
+      dockerfile: ./podman/Dockerfile
+      context: .
+    ports:
+      - "0.0.0.0:8081:8081"
+    volumes:
+      - ./database:/app/database
+    environment:
+      - UNSPLASH_APP_ID=<APP_ID>
+      - UNSPLASH_ACCESS=<ACCESS_KEY>
+      - UNSPLASH_SECRET=<SECRET_KEY>
+      - PIXABAY_KEY=<KEY>
+      - STORYBLOCKS_PUBLIC=<PUBLIC_KEY>
+      - STORYBLOCKS_PRIVATE=<PRIVATE_KEY>
+      - DATABASE=/app/database/pantheon.sqlite
+      - CACHE_RESULT=True
+      - JWT_SECRET=<SECRET>

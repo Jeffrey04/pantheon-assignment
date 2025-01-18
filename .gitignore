@@ -10,4 +10,5 @@ wheels/
 .venv
 
 .envrc
-database.sqlite*
+*.sqlite*
+docker-compose.yml
