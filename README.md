@@ -32,6 +32,7 @@ podman build -t jeffrey04/pantheon-assignment:dev ./podman
 
 You can refer to the `docker-compose.yml.sample` to create a compose file for your environment. Please note that the database will reset itself on every run.
 
+
 ## Usage Guide
 
 ### Authentication
@@ -56,6 +57,7 @@ In order to authenticate yourself, you need to pass an `Authorization` header as
 Please refer to the previous section to register yourself to get a token.
 
 Search is served via the endpoint `GET /search`. The endpoint expects a query string parameter named `search_term` where the value is a string containing the desired query.
+
 
 ## Experiment with 1000 requests
 
