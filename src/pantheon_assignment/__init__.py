@@ -93,10 +93,15 @@ load_dotenv()
 
 
 async def _database_connect() -> sqlite3.Connection:
+    # NOTE: as this is a short assignment, I picked sqlite for simplicity, however the
+    # downside is that database operations are synchronous. For a real production project
+    # I would probably switch to something like sqlalchemy.
     conn = sqlite3.connect(
         environ.get("DATABASE", DATABASE_DEFAULT), isolation_level=None
     )
 
+    # NOTE: In order to allow multiple connections to access the database, switch
+    # to write-ahead logging https://www.sqlite.org/wal.html
     if conn.execute("PRAGMA journal_mode=WAL;").fetchone()[0] != "wal":
         raise Exception("Unable to initialize database")
 
@@ -147,6 +152,10 @@ async def register(
     )
     conn.commit()
 
+    # NOTE: JWT is picked as a quick proof-of-concept way to send back a token to
+    # the user for quick authentication, ideally should have a frontend to let user
+    # generate a public and private key and authenticate API requests with the generated
+    # keys
     return Token(
         user.name,
         jwt.encode(
@@ -185,6 +194,9 @@ async def search(
     result = tuple(chain.from_iterable(task.result() for task in tasks))
 
     if _check_is_cache_result():
+        # NOTE: added cache to experiment and find if the server is capable of handling large amount of requests
+        # In production work, this would be asynchronous, but for now keeping this for simplicity
+        # alternatively, I could send this to the background
         _cache_result(conn, search_term, result)
 
     conn.commit()
