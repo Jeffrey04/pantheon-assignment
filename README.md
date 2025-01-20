@@ -61,7 +61,7 @@ Search is served via the endpoint `GET /search`. The endpoint expects a query st
 
 ## Experiment with 1000 requests
 
-Not trying to fulfill the goal, just tested out of curiosity. Due to the API limit, I cheated by caching the result before running the test. 6 worker processes were spawned for the test.
+Not trying to fulfill the goal, just tested out of curiosity (the workstation is running on an old CPU wtih spinning disks). Due to the API limit, I cheated by caching the result before running the test. 6 worker processes were spawned for the test.
 
 ```
 jeffrey04@nobita-ubuntu:pantheon-assignment on  main [!?] is 📦 v0.1.0 via 🐍 v3.12.6 (pantheon-assignment) [direnv] [▲]  http localhost:8081/register --json name=foo password=bar
