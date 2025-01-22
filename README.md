@@ -27,7 +27,7 @@ JWT_SECRET=<JWT SECRET KEY>
 A docker image is made available at `ghcr.io/jeffrey04/pantheon-assignment:dev`, or you can proceed to build with
 
 ```
-podman build -t jeffrey04/pantheon-assignment:dev ./podman
+podman build -t jeffrey04/pantheon-assignment:dev -f ./podman/Dockerfile .
 ```
 
 Assuming the environment variables are saved in a dotenv file named `.env`, you can start the server by using (ensure the `DATABASE` environment variable matches the `--volume` mount)
